@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>AI Ship Design Debugger</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; overflow: hidden; }
+  #app { display: grid; grid-template-columns: 260px 1fr 360px; grid-template-rows: 52px 1fr; height: 100vh; }
+  header {
+    grid-column: 1 / 4; display: flex; align-items: center; gap: 12px;
+    padding: 0 16px; background: #161b22; border-bottom: 1px solid #30363d;
+  }
+  header h1 { font-size: 16px; font-weight: 600; }
+  header .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #1f6feb33; color: #58a6ff; border: 1px solid #1f6feb66; }
+  #sidebar { background: #161b22; border-right: 1px solid #30363d; overflow-y: auto; padding: 12px; min-height: 0; }
+  #sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #8b949e; margin: 14px 0 6px; }
+  .item {
+    display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px;
+    cursor: pointer; font-size: 13px; user-select: none;
+  }
+  .item:hover { background: #21262d; }
+  .item.selected { background: #1f6feb33; outline: 1px solid #1f6feb66; }
+  .dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+  .item .sub { color: #8b949e; font-size: 11px; margin-left: auto; }
+  #viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+  #canvas3d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #tooltip {
+    position: absolute; pointer-events: none; background: #161b22ee; border: 1px solid #30363d;
+    padding: 6px 10px; border-radius: 6px; font-size: 12px; display: none; z-index: 10;
+  }
+  #hint { position: absolute; bottom: 10px; left: 12px; font-size: 11px; color: #8b949e; }
+  /* ---- error panel ---- */
+  #errorpanel { background: #161b22; border-left: 1px solid #30363d; overflow-y: auto; padding: 12px; min-height: 0; }
+  #errorpanel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #8b949e; margin-bottom: 8px; }
+  #inspect-btn {
+    width: 100%; padding: 9px; margin-bottom: 10px; border: 1px solid #1f6feb; border-radius: 6px;
+    background: #1f6feb22; color: #58a6ff; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  #inspect-btn:hover { background: #1f6feb44; }
+  #summary { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 70px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; text-align: center; }
+  .stat b { display: block; font-size: 18px; }
+  .stat span { font-size: 10px; color: #8b949e; }
+  .stat.bad b { color: #f85149; }
+  .stat.ok b { color: #3fb950; }
+  .err-card {
+    background: #0d1117; border: 1px solid #30363d; border-left: 3px solid #f85149;
+    border-radius: 6px; padding: 10px; margin-bottom: 8px; cursor: pointer; font-size: 12px;
+  }
+  .err-card:hover { background: #1c2128; }
+  .err-card.selected { outline: 1px solid #f85149; background: #f8514911; }
+  .err-card.MEDIUM { border-left-color: #d29922; }
+  .err-card .row1 { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .err-card .eid { font-weight: 700; }
+  .sev { font-size: 10px; padding: 1px 7px; border-radius: 10px; font-weight: 600; }
+  .sev.HIGH { background: #f8514922; color: #f85149; border: 1px solid #f8514955; }
+  .sev.MEDIUM { background: #d2992222; color: #d29922; border: 1px solid #d2992255; }
+  .err-card .code { margin-left: auto; font-size: 10px; color: #8b949e; }
+  .err-card .subjects { color: #e6edf3; margin-bottom: 4px; }
+  .err-card .nums { color: #8b949e; }
+  .err-card .nums b { color: #f85149; }
+  #no-errors { text-align: center; color: #3fb950; padding: 24px 0; font-size: 13px; display: none; }
+  /* ---- resolution candidates ---- */
+  .cand-wrap { margin-top: 8px; border-top: 1px dashed #30363d; padding-top: 8px; }
+  .cand-loading { color: #8b949e; font-size: 11px; padding: 4px 0; }
+  .cand {
+    background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+    padding: 8px; margin-bottom: 6px;
+  }
+  .cand.rec { border-color: #3fb95066; }
+  .cand .c-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .cand .opt { font-weight: 700; color: #58a6ff; }
+  .cand .rec-badge { font-size: 10px; padding: 1px 7px; border-radius: 10px; background: #23863633; color: #3fb950; border: 1px solid #23863666; }
+  .cand .vbadge { font-size: 10px; color: #3fb950; margin-left: auto; }
+  .cand .c-desc { color: #e6edf3; margin-bottom: 3px; }
+  .cand .c-impact { color: #8b949e; font-size: 11px; margin-bottom: 6px; }
+  .cand .c-btns { display: flex; gap: 6px; }
+  .cand button {
+    flex: 1; padding: 4px; font-size: 11px; border-radius: 5px; cursor: pointer;
+    background: #21262d; border: 1px solid #30363d; color: #e6edf3;
+  }
+  .cand button:hover { background: #30363d; }
+  .cand button.apply { background: #238636; border-color: #2ea043; color: #fff; font-weight: 600; }
+  .cand button.apply:hover { background: #2ea043; }
+  #reset-btn {
+    margin-left: auto; padding: 5px 14px; font-size: 12px; border-radius: 6px; cursor: pointer;
+    background: #21262d; border: 1px solid #30363d; color: #e6edf3;
+  }
+  #reset-btn:hover { background: #30363d; }
+  /* ---- AI analysis ---- */
+  .ai-btn {
+    width: 100%; padding: 6px; margin-top: 2px; border-radius: 5px; cursor: pointer;
+    background: #6e40c922; border: 1px solid #6e40c966; color: #bc8cff; font-size: 12px; font-weight: 600;
+  }
+  .ai-btn:hover { background: #6e40c944; }
+  .ai-box {
+    margin-top: 8px; background: #161b22; border: 1px solid #6e40c955; border-radius: 6px;
+    padding: 10px; font-size: 12px; line-height: 1.55;
+  }
+  .ai-box h4 { color: #bc8cff; font-size: 11px; margin: 8px 0 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .ai-box h4:first-child { margin-top: 0; }
+  .ai-box ul { margin-left: 16px; }
+  .ai-box .kb { margin-top: 8px; color: #8b949e; font-size: 10px; }
+  .ai-loading { color: #bc8cff; font-size: 11px; padding: 6px 0; text-align: center; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>🛳️ AI Ship Design Debugger</h1>
+    <span class="badge" id="scene-name">loading…</span>
+    <span class="badge" style="background:#23863633;color:#3fb950;border-color:#23863666">Phase 5 · Detect + Recommend + Explain</span>
+    <button id="reset-btn">↩ 설계 초기화</button>
+  </header>
+  <div id="sidebar">
+    <h2>Equipment</h2><div id="list-equipment"></div>
+    <h2>Pipes</h2><div id="list-pipes"></div>
+    <h2>Structures</h2><div id="list-structures"></div>
+  </div>
+  <div id="viewport">
+    <canvas id="canvas3d"></canvas>
+    <div id="tooltip"></div>
+    <div id="hint">드래그: 회전 · 휠: 줌 · 우클릭 드래그: 이동 · 클릭: 선택</div>
+  </div>
+  <div id="errorpanel">
+    <h2>Design Verification</h2>
+    <button id="inspect-btn">🔍 설계 검사 실행</button>
+    <div id="summary"></div>
+    <div id="no-errors">✅ 위반 사항 없음</div>
+    <div id="err-list"></div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---------- Renderer / Scene ----------
+const canvas = document.getElementById('canvas3d');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+scene.fog = new THREE.Fog(0x0d1117, 40, 90);
+
+const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+camera.position.set(24, 16, 24);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(10, 2, -5);
+controls.enableDamping = true;
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+const dir = new THREE.DirectionalLight(0xffffff, 1.4);
+dir.position.set(15, 25, 10);
+scene.add(dir);
+const dir2 = new THREE.DirectionalLight(0x8899ff, 0.4);
+dir2.position.set(-10, 10, -15);
+scene.add(dir2);
+
+// Data is Z-up (engineering). Root group rotates it into Three.js Y-up view.
+const root = new THREE.Group();
+root.rotation.x = -Math.PI / 2;
+scene.add(root);
+
+const v3 = (p) => new THREE.Vector3(p[0], p[1], p[2]); // used inside root (Z-up space)
+
+// ---------- Materials ----------
+const COLORS = {
+  engine: 0x8d6e63, pump: 0x2e9e5b, heat_exchanger: 0xd9822b,
+  generator: 0x3d7bd9, deck: 0x30363d, frame: 0x5a6572,
+  cooling: 0x4dabf7, ballast: 0x9775fa, fresh_water: 0x38d9a9, fuel: 0xffd43b,
+};
+const matFor = (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.25 });
+
+// ---------- Object registry (for selection) ----------
+const registry = new Map(); // id -> { meshes:[], baseEmissive, listEl, label }
+const pickables = [];
+const labels = [];
+
+function register(id, name, mesh, listContainer, colorHex, sub = '') {
+  mesh.userData.id = id;
+  mesh.userData.name = name;
+  pickables.push(mesh);
+  if (!registry.has(id)) {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.innerHTML = `<span class="dot" style="background:#${colorHex.toString(16).padStart(6, '0')}"></span>
+                    <span>${id}</span><span class="sub">${sub}</span>`;
+    el.title = name;
+    el.onclick = () => select(id, true);
+    document.getElementById(listContainer).appendChild(el);
+    registry.set(id, { meshes: [], listEl: el });
+  }
+  registry.get(id).meshes.push(mesh);
+}
+
+let selectedId = null;
+function select(id, focusCamera = false) {
+  if (selectedId && registry.has(selectedId)) {
+    registry.get(selectedId).meshes.forEach(m => m.material.emissive?.setHex(m.userData.baseEmissive ?? 0x000000));
+    registry.get(selectedId).listEl.classList.remove('selected');
+  }
+  selectedId = id;
+  if (!id || !registry.has(id)) return;
+  const entry = registry.get(id);
+  entry.meshes.forEach(m => m.material.emissive?.setHex(0x2255ff));
+  entry.listEl.classList.add('selected');
+  entry.listEl.scrollIntoView({ block: 'nearest' });
+  if (focusCamera) {
+    const box = new THREE.Box3();
+    entry.meshes.forEach(m => box.expandByObject(m));
+    const c = box.getCenter(new THREE.Vector3());
+    controls.target.copy(c);
+  }
+}
+
+// ---------- Builders ----------
+function addBox(obj, type, listContainer, materialColor) {
+  const { min, max } = obj.box;
+  const size = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+  const geo = new THREE.BoxGeometry(...size);
+  const mat = matFor(materialColor);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(min[0] + size[0] / 2, min[1] + size[1] / 2, min[2] + size[2] / 2);
+  root.add(mesh);
+  // edge outline
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }));
+  mesh.add(edges);
+  register(obj.id, obj.name, mesh, listContainer, materialColor, type);
+  addLabel(obj.id, mesh.position.clone().add(new THREE.Vector3(0, 0, size[2] / 2 + 0.35)));
+  return mesh;
+}
+
+function addPipe(pipe) {
+  const r = pipe.diameter_mm / 2000; // mm -> m radius
+  const color = COLORS[pipe.system] ?? 0xaaaaaa;
+  const pts = pipe.path.map(v3);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    const len = a.distanceTo(b);
+    const geo = new THREE.CylinderGeometry(r, r, len, 20);
+    const mesh = new THREE.Mesh(geo, matFor(color));
+    mesh.position.copy(a).lerp(b, 0.5);
+    mesh.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      b.clone().sub(a).normalize());
+    root.add(mesh);
+    register(pipe.id, pipe.name, mesh, 'list-pipes', color, `Ø${pipe.diameter_mm}`);
+  }
+  // elbows
+  for (let i = 1; i < pts.length - 1; i++) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(r * 1.15, 16, 16), matFor(color));
+    s.position.copy(pts[i]);
+    root.add(s);
+    register(pipe.id, pipe.name, s, 'list-pipes', color);
+  }
+  addLabel(pipe.id, pts[Math.floor(pts.length / 2)].clone().add(new THREE.Vector3(0, 0, 0.45)));
+}
+
+function addLabel(text, posZup) {
+  const cv = document.createElement('canvas');
+  const ctx = cv.getContext('2d');
+  ctx.font = '600 44px Segoe UI';
+  const w = ctx.measureText(text).width + 36;
+  cv.width = w; cv.height = 72;
+  const c2 = cv.getContext('2d');
+  c2.fillStyle = 'rgba(13,17,23,0.75)';
+  c2.beginPath(); c2.roundRect(0, 0, w, 72, 14); c2.fill();
+  c2.font = '600 44px Segoe UI';
+  c2.fillStyle = '#e6edf3';
+  c2.fillText(text, 18, 52);
+  const tex = new THREE.CanvasTexture(cv);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false }));
+  const worldPos = posZup.clone().applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+  spr.position.copy(worldPos);
+  spr.scale.set(w / 72 * 0.5, 0.5, 1);
+  scene.add(spr);
+  labels.push(spr);
+}
+
+// ---------- Room shell ----------
+let gridAdded = false;
+function addRoom(room) {
+  const { min, max } = room;
+  const size = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+  const geo = new THREE.BoxGeometry(...size);
+  const wire = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geo),
+    new THREE.LineBasicMaterial({ color: 0x30363d }));
+  wire.position.set(min[0] + size[0] / 2, min[1] + size[1] / 2, min[2] + size[2] / 2);
+  root.add(wire);
+  const grid = new THREE.GridHelper(Math.max(size[0], size[1]) * 1.4, 28, 0x21262d, 0x1b2027);
+  grid.position.set((min[0] + max[0]) / 2, 0.01, -(min[1] + max[1]) / 2);
+  if (!gridAdded) { scene.add(grid); gridAdded = true; }
+}
+
+// ---------- Picking ----------
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const tooltip = document.getElementById('tooltip');
+canvas.addEventListener('pointermove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  mouse.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  raycaster.setFromCamera(mouse, camera);
+  const hit = raycaster.intersectObjects(pickables, false)[0];
+  if (hit) {
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX - rect.left + 14) + 'px';
+    tooltip.style.top = (e.clientY - rect.top + 14) + 'px';
+    tooltip.textContent = `${hit.object.userData.id} · ${hit.object.userData.name}`;
+    canvas.style.cursor = 'pointer';
+  } else {
+    tooltip.style.display = 'none';
+    canvas.style.cursor = 'default';
+  }
+});
+canvas.addEventListener('click', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  mouse.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  raycaster.setFromCamera(mouse, camera);
+  const hit = raycaster.intersectObjects(pickables, false)[0];
+  select(hit ? hit.object.userData.id : null);
+});
+
+// ---------- Load scene ----------
+async function loadScene() {
+  // clear previous 3D objects + sidebar
+  [...root.children].forEach(c => root.remove(c));
+  labels.forEach(l => scene.remove(l));
+  labels.length = 0;
+  registry.clear();
+  pickables.length = 0;
+  markers.length = 0;
+  selectedId = null;
+  for (const lid of ['list-equipment', 'list-pipes', 'list-structures'])
+    document.getElementById(lid).innerHTML = '';
+
+  const data = await (await fetch('/api/scene')).json();
+  document.getElementById('scene-name').textContent = data.meta.name;
+  addRoom(data.meta.room);
+  for (const s of data.structures) addBox(s, s.type, 'list-structures', COLORS[s.type] ?? 0x555555);
+  for (const eq of data.equipment) addBox(eq, eq.type, 'list-equipment', COLORS[eq.type] ?? 0x888888);
+  for (const p of data.pipes) addPipe(p);
+}
+
+// ---------- Inspection ----------
+const markers = [];           // pulsing violation markers (in Z-up root space)
+let selectedErrCard = null;
+
+function setViolationHighlight(id, on) {
+  const entry = registry.get(id);
+  if (!entry) return;
+  entry.meshes.forEach(m => {
+    m.userData.baseEmissive = on ? 0x991111 : 0x000000;
+    if (selectedId !== id) m.material.emissive?.setHex(m.userData.baseEmissive);
+  });
+}
+
+function clearMarkers() {
+  markers.forEach(m => root.remove(m));
+  markers.length = 0;
+}
+
+function addMarker(loc, severity) {
+  const color = severity === 'HIGH' ? 0xf85149 : 0xd29922;
+  const m = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 20, 20),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, depthTest: false }));
+  m.position.set(loc[0], loc[1], loc[2]);
+  m.renderOrder = 999;
+  root.add(m);
+  markers.push(m);
+  return m;
+}
+
+function focusOn(loc) {
+  // convert Z-up data coords to world (root is rotated -90deg about X)
+  const world = new THREE.Vector3(loc[0], loc[1], loc[2])
+    .applyMatrix4(new THREE.Matrix4().makeRotationX(-Math.PI / 2));
+  controls.target.copy(world);
+  const dirV = camera.position.clone().sub(world).normalize().multiplyScalar(7);
+  camera.position.copy(world.clone().add(dirV));
+}
+
+async function runInspection() {
+  const res = await (await fetch('/api/inspect')).json();
+  const { summary, violations } = res;
+
+  document.getElementById('summary').innerHTML = `
+    <div class="stat"><b>${summary.checks_run}</b><span>검사</span></div>
+    <div class="stat ok"><b>${summary.passed}</b><span>통과</span></div>
+    <div class="stat bad"><b>${summary.violations}</b><span>위반</span></div>`;
+  document.getElementById('no-errors').style.display = violations.length ? 'none' : 'block';
+
+  // reset previous highlights/markers
+  registry.forEach((_, id) => setViolationHighlight(id, false));
+  clearMarkers();
+
+  const list = document.getElementById('err-list');
+  list.innerHTML = '';
+  for (const v of violations) {
+    setViolationHighlight(v.a.id, true);
+    setViolationHighlight(v.b.id, true);
+    addMarker(v.location, v.severity);
+
+    const card = document.createElement('div');
+    card.className = `err-card ${v.severity}`;
+    card.innerHTML = `
+      <div class="row1">
+        <span class="eid">⚠ ${v.id}</span>
+        <span class="sev ${v.severity}">${v.severity}</span>
+        <span class="code">${v.code}</span>
+      </div>
+      <div class="subjects">${v.a.id} ↔ ${v.b.id}</div>
+      <div class="nums">실측 <b>${v.measured_mm} mm</b> · 요구 ${v.required_mm} mm</div>`;
+    card.onclick = (e) => {
+      if (e.target.tagName === 'BUTTON') return; // candidate buttons handle themselves
+      if (selectedErrCard && selectedErrCard !== card) selectedErrCard.classList.remove('selected');
+      selectedErrCard = card;
+      card.classList.add('selected');
+      focusOn(v.location);
+      select(v.a.id);
+      toggleCandidates(card, v);
+    };
+    list.appendChild(card);
+  }
+}
+
+document.getElementById('inspect-btn').onclick = runInspection;
+
+// ---------- Resolution candidates (Phase 4) ----------
+const ghosts = [];
+function clearGhosts() {
+  ghosts.forEach(m => root.remove(m));
+  ghosts.length = 0;
+}
+
+const ghostMat = new THREE.MeshStandardMaterial({
+  color: 0x3fb950, transparent: true, opacity: 0.45, roughness: 0.4, depthTest: false });
+
+function previewCandidate(cand) {
+  clearGhosts();
+  const act = cand.action;
+  if (act.type === 'offset_pipe_segment') {
+    const pts = act.new_path.map(v3);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const len = a.distanceTo(b);
+      if (len < 1e-6) continue;
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, len, 12), ghostMat);
+      m.position.copy(a).lerp(b, 0.5);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+      m.renderOrder = 998;
+      root.add(m); ghosts.push(m);
+    }
+  } else {
+    const { min, max } = act.new_box;
+    const size = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+    const m = new THREE.Mesh(new THREE.BoxGeometry(...size), ghostMat);
+    m.position.set(min[0] + size[0] / 2, min[1] + size[1] / 2, min[2] + size[2] / 2);
+    m.renderOrder = 998;
+    root.add(m); ghosts.push(m);
+  }
+}
+
+async function applyCandidate(cand) {
+  await fetch('/api/apply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cand.action),
+  });
+  clearGhosts();
+  await loadScene();
+  await runInspection();
+}
+
+async function toggleCandidates(card, violation) {
+  let wrap = card.querySelector('.cand-wrap');
+  if (wrap) { wrap.remove(); clearGhosts(); return; }
+  wrap = document.createElement('div');
+  wrap.className = 'cand-wrap';
+  wrap.innerHTML = '<div class="cand-loading">⚙ 해결안 계산·검증 중…</div>';
+  card.appendChild(wrap);
+
+  const res = await (await fetch(`/api/resolve/${violation.id}`)).json();
+  wrap.innerHTML = '';
+  if (!res.candidates || res.candidates.length === 0) {
+    wrap.innerHTML = '<div class="cand-loading">자동 해결안을 찾지 못했습니다 (수동 검토 필요)</div>';
+    return;
+  }
+  for (const c of res.candidates) {
+    const div = document.createElement('div');
+    div.className = 'cand' + (c.recommended ? ' rec' : '');
+    div.innerHTML = `
+      <div class="c-head">
+        <span class="opt">${c.option}안</span>
+        ${c.recommended ? '<span class="rec-badge">★ 추천</span>' : ''}
+        <span class="vbadge">✓ 검증됨 · 잔여 위반 ${c.violations_after}건</span>
+      </div>
+      <div class="c-desc">${c.description}</div>
+      <div class="c-impact">영향: ${c.impact} · 이동량 ${c.displacement_mm} mm</div>
+      <div class="c-btns">
+        <button class="preview">👁 미리보기</button>
+        <button class="apply">✓ 적용</button>
+      </div>`;
+    div.querySelector('.preview').onclick = () => previewCandidate(c);
+    div.querySelector('.apply').onclick = () => applyCandidate(c);
+    wrap.appendChild(div);
+  }
+  // AI analysis (Explain + Learn)
+  const aiBtn = document.createElement('button');
+  aiBtn.className = 'ai-btn';
+  aiBtn.textContent = '🤖 AI 분석 (원인 · 영향 · 추천 근거 · 과거 사례)';
+  aiBtn.onclick = async () => {
+    aiBtn.remove();
+    const box = document.createElement('div');
+    box.className = 'ai-box';
+    box.innerHTML = '<div class="ai-loading">🤖 AI가 규정과 과거 사례를 검토하고 있습니다…</div>';
+    wrap.appendChild(box);
+    const r = await (await fetch(`/api/explain/${violation.id}`)).json();
+    const a = r.analysis;
+    box.innerHTML = `
+      <h4>왜 문제인가</h4><div>${a.why}</div>
+      <h4>예상 영향</h4><ul>${a.impact.map(i => `<li>${i}</li>`).join('')}</ul>
+      <h4>추천 근거</h4><div>${a.recommendation}</div>
+      <h4>과거 유사 사례</h4><div>${a.past_case}</div>
+      <div class="kb">근거: 규정 ${a.knowledge_used.rules.join(', ')} · 사례 ${a.knowledge_used.cases.join(', ')}
+      ${a.llm ? '· Claude 생성' : '· 템플릿 (LLM 미연결)'}</div>`;
+  };
+  wrap.appendChild(aiBtn);
+  previewCandidate(res.candidates[0]); // auto-preview the recommended fix
+}
+
+document.getElementById('reset-btn').onclick = async () => {
+  await fetch('/api/reset', { method: 'POST' });
+  clearGhosts();
+  await loadScene();
+  await runInspection();
+};
+
+// ---------- Bootstrap ----------
+await loadScene();
+await runInspection();
+
+// ---------- Loop ----------
+function resize() {
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== w * devicePixelRatio || canvas.height !== h * devicePixelRatio) {
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+  }
+}
+window.addEventListener('resize', resize);
+(function animate() {
+  requestAnimationFrame(animate);
+  resize();
+  // pulse violation markers
+  const s = 1 + 0.35 * Math.sin(performance.now() / 280);
+  markers.forEach(m => m.scale.setScalar(s));
+  controls.update();
+  renderer.render(scene, camera);
+})();
+</script>
+</body>
+</html>

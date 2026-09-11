@@ -1,0 +1,91 @@
+{
+  "meta": {
+    "name": "Engine Room Block A",
+    "units": "m",
+    "up_axis": "z",
+    "room": { "min": [0, 0, 0], "max": [20, 10, 6] }
+  },
+  "rules": {
+    "min_pipe_clearance_mm": 300,
+    "min_pipe_to_pipe_clearance_mm": 50,
+    "default_maintenance_clearance_mm": 800
+  },
+  "structures": [
+    { "id": "deck",  "name": "Deck Floor",  "type": "deck",  "box": { "min": [0, 0, -0.2], "max": [20, 10, 0] } },
+    { "id": "F-21", "name": "Web Frame F-21", "type": "frame", "box": { "min": [4.9, 0, 0],  "max": [5.1, 0.4, 6] } },
+    { "id": "F-22", "name": "Web Frame F-22", "type": "frame", "box": { "min": [7.4, 0, 0],  "max": [7.6, 0.4, 6] } },
+    { "id": "F-23", "name": "Web Frame F-23", "type": "frame", "box": { "min": [9.9, 0, 0],  "max": [10.1, 0.4, 6] } },
+    { "id": "F-24", "name": "Web Frame F-24", "type": "frame", "box": { "min": [12.4, 0, 0], "max": [12.6, 0.4, 6] } },
+    { "id": "F-25", "name": "Web Frame F-25", "type": "frame", "box": { "min": [14.9, 0, 0], "max": [15.1, 0.4, 6] } }
+  ],
+  "equipment": [
+    {
+      "id": "main_engine", "name": "Main Engine ME-01", "type": "engine",
+      "box": { "min": [7, 3, 0], "max": [13, 7, 4] }
+    },
+    {
+      "id": "pump_A", "name": "Cooling Pump P-A", "type": "pump",
+      "box": { "min": [2, 2, 0], "max": [3, 3, 1.2] }
+    },
+    {
+      "id": "heat_exchanger_B", "name": "Heat Exchanger HX-B", "type": "heat_exchanger",
+      "box": { "min": [16, 6.5, 0], "max": [18.5, 8.5, 2] }
+    },
+    {
+      "id": "generator_1", "name": "Generator GEN-01", "type": "generator",
+      "box": { "min": [2, 7, 0], "max": [5, 9, 2] },
+      "maintenance_clearance_mm": 800
+    },
+    {
+      "id": "spare_pump", "name": "Spare Pump P-S", "type": "pump",
+      "box": { "min": [5.3, 7.5, 0], "max": [6.1, 8.3, 1] }
+    }
+  ],
+  "pipes": [
+    {
+      "id": "P-101", "name": "Cooling Water Line P-101",
+      "system": "cooling", "diameter_mm": 80,
+      "from": "pump_A", "to": "heat_exchanger_B",
+      "path": [
+        [2.5, 2.5, 1.0],
+        [2.5, 2.78, 1.0],
+        [15.0, 2.78, 1.0],
+        [15.0, 7.5, 1.0],
+        [16.0, 7.5, 1.0]
+      ]
+    },
+    {
+      "id": "P-102", "name": "Ballast Line P-102",
+      "system": "ballast", "diameter_mm": 100,
+      "from": null, "to": null,
+      "path": [
+        [9.0, 1.5, 2.5],
+        [9.0, 0.3, 2.5],
+        [12.0, 0.3, 2.5],
+        [12.0, 1.5, 2.5]
+      ]
+    },
+    {
+      "id": "P-103", "name": "Fresh Water Line P-103",
+      "system": "fresh_water", "diameter_mm": 65,
+      "from": null, "to": null,
+      "path": [
+        [6.0, 0.8, 0.4],
+        [6.0, 0.8, 1.05],
+        [6.0, 5.5, 1.05],
+        [6.0, 5.5, 0.4]
+      ]
+    },
+    {
+      "id": "P-104", "name": "Fuel Oil Line P-104",
+      "system": "fuel", "diameter_mm": 50,
+      "from": null, "to": null,
+      "path": [
+        [19.0, 5.0, 0.5],
+        [19.0, 5.0, 3.0],
+        [14.5, 5.0, 3.0],
+        [14.5, 5.0, 4.5]
+      ]
+    }
+  ]
+}
