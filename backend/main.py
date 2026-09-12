@@ -38,6 +38,22 @@ def get_scene() -> Scene:
     return WORK["scene"]
 
 
+@app.put("/api/scene")
+def update_scene(scene: Scene) -> dict:
+    """Replace the working scene (interactive editing) and re-inspect."""
+    WORK["scene"] = scene
+    return inspect_scene(scene)
+
+
+@app.post("/api/save")
+def save_scene() -> dict:
+    """Persist the working scene to the design file."""
+    DATA_FILE.write_text(
+        json.dumps(WORK["scene"].model_dump(by_alias=True), ensure_ascii=False, indent=2),
+        encoding="utf-8")
+    return {"saved": True}
+
+
 @app.get("/api/inspect")
 def inspect() -> dict:
     """Run the deterministic rule engine and return all violations."""

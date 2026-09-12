@@ -84,7 +84,7 @@
   .cand button.apply { background: #238636; border-color: #2ea043; color: #fff; font-weight: 600; }
   .cand button.apply:hover { background: #2ea043; }
   #reset-btn {
-    margin-left: auto; padding: 5px 14px; font-size: 12px; border-radius: 6px; cursor: pointer;
+    padding: 5px 14px; font-size: 12px; border-radius: 6px; cursor: pointer;
     background: #21262d; border: 1px solid #30363d; color: #e6edf3;
   }
   #reset-btn:hover { background: #30363d; }
@@ -103,6 +103,27 @@
   .ai-box ul { margin-left: 16px; }
   .ai-box .kb { margin-top: 8px; color: #8b949e; font-size: 10px; }
   .ai-loading { color: #bc8cff; font-size: 11px; padding: 6px 0; text-align: center; }
+  /* ---- edit toolbar ---- */
+  #toolbar { display: flex; flex-direction: column; gap: 6px; margin-bottom: 4px; }
+  #toolbar select {
+    width: 100%; padding: 6px; background: #0d1117; color: #e6edf3;
+    border: 1px solid #30363d; border-radius: 6px; font-size: 12px;
+  }
+  #toolbar input {
+    width: 100%; padding: 5px; background: #0d1117; color: #e6edf3;
+    border: 1px solid #30363d; border-radius: 6px; font-size: 12px;
+  }
+  #toolbar .tool-row { display: flex; gap: 6px; }
+  #toolbar button {
+    flex: 1; padding: 6px; font-size: 12px; border-radius: 6px; cursor: pointer;
+    background: #21262d; border: 1px solid #30363d; color: #e6edf3;
+  }
+  #toolbar button:hover { background: #30363d; }
+  #save-btn {
+    margin-left: auto; padding: 5px 14px; font-size: 12px; border-radius: 6px; cursor: pointer;
+    background: #238636; border: 1px solid #2ea043; color: #fff; font-weight: 600;
+  }
+  #save-btn:hover { background: #2ea043; }
 </style>
 <script type="importmap">
 {
@@ -118,10 +139,31 @@
   <header>
     <h1>🛳️ AI Ship Design Debugger</h1>
     <span class="badge" id="scene-name">loading…</span>
-    <span class="badge" style="background:#23863633;color:#3fb950;border-color:#23863666">Phase 5 · Detect + Recommend + Explain</span>
-    <button id="reset-btn">↩ 설계 초기화</button>
+    <span class="badge" style="background:#23863633;color:#3fb950;border-color:#23863666">Phase 6 · Interactive Design</span>
+    <button id="save-btn">💾 저장</button>
+    <button id="reset-btn">↩ 되돌리기</button>
   </header>
   <div id="sidebar">
+    <h2>Design Tools</h2>
+    <div id="toolbar">
+      <select id="add-type">
+        <option value="pump">Pump</option>
+        <option value="heat_exchanger">Heat Exchanger</option>
+        <option value="generator">Generator</option>
+        <option value="tank">Tank</option>
+        <option value="engine">Engine</option>
+        <option value="frame">Web Frame (구조)</option>
+      </select>
+      <div class="tool-row">
+        <button id="add-obj">+ 장비 추가</button>
+        <button id="add-pipe">+ 배관 추가</button>
+      </div>
+      <div class="tool-row" style="align-items:center">
+        <label style="font-size:11px;color:#8b949e;white-space:nowrap">배관 직경(mm)</label>
+        <input id="pipe-dia" type="number" value="80" min="15" max="600" />
+      </div>
+      <button id="del-obj">🗑 선택 항목 삭제</button>
+    </div>
     <h2>Equipment</h2><div id="list-equipment"></div>
     <h2>Pipes</h2><div id="list-pipes"></div>
     <h2>Structures</h2><div id="list-structures"></div>
@@ -129,7 +171,7 @@
   <div id="viewport">
     <canvas id="canvas3d"></canvas>
     <div id="tooltip"></div>
-    <div id="hint">드래그: 회전 · 휠: 줌 · 우클릭 드래그: 이동 · 클릭: 선택</div>
+    <div id="hint">드래그: 회전 · 휠: 줌 · 클릭: 선택+이동기즈모 · 배관 선택 후 노란점 드래그: 경로 수정 · 더블클릭: 점 추가 · Shift+클릭: 점 삭제</div>
   </div>
   <div id="errorpanel">
     <h2>Design Verification</h2>
@@ -143,6 +185,7 @@
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
 // ---------- Renderer / Scene ----------
 const canvas = document.getElementById('canvas3d');
@@ -157,6 +200,34 @@ camera.position.set(24, 16, 24);
 const controls = new OrbitControls(camera, canvas);
 controls.target.set(10, 2, -5);
 controls.enableDamping = true;
+
+// ---------- Transform gizmo (editing) ----------
+const tcontrols = new TransformControls(camera, canvas);
+tcontrols.setMode('translate');
+tcontrols.setTranslationSnap(0.05);
+tcontrols.size = 0.7;
+scene.add(tcontrols);
+let editState = null;      // { kind:'box'|'waypoint', ref, mesh, index? }
+let justDragged = false;
+tcontrols.addEventListener('dragging-changed', async (e) => {
+  controls.enabled = !e.value;
+  if (!e.value && editState) {
+    justDragged = true;
+    const s = editState;
+    const snap = v => Math.round(v * 20) / 20;
+    if (s.kind === 'box') {
+      const o = s.ref;
+      const size = [0, 1, 2].map(k => o.box.max[k] - o.box.min[k]);
+      const c = s.mesh.position;
+      o.box.min = [snap(c.x - size[0] / 2), snap(c.y - size[1] / 2), snap(c.z - size[2] / 2)];
+      o.box.max = [0, 1, 2].map(k => o.box.min[k] + size[k]);
+    } else {
+      const p = s.mesh.position;
+      s.ref.path[s.index] = [snap(p.x), snap(p.y), snap(p.z)];
+    }
+    await commitEdit();
+  }
+});
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.55));
 const dir = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -185,6 +256,9 @@ const matFor = (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.5
 const registry = new Map(); // id -> { meshes:[], baseEmissive, listEl, label }
 const pickables = [];
 const labels = [];
+let sceneData = null;           // authoritative design data (mirrors backend)
+let objIndex = new Map();       // id -> { kind, ref } into sceneData
+const handleMeshes = [];        // draggable pipe waypoint handles
 
 function register(id, name, mesh, listContainer, colorHex, sub = '') {
   mesh.userData.id = id;
@@ -221,6 +295,63 @@ function select(id, focusCamera = false) {
     const c = box.getCenter(new THREE.Vector3());
     controls.target.copy(c);
   }
+  editTarget(id);
+}
+
+// ---------- Editing ----------
+function clearHandles() {
+  handleMeshes.forEach(h => root.remove(h));
+  handleMeshes.length = 0;
+}
+
+function editTarget(id) {
+  tcontrols.detach();
+  clearHandles();
+  editState = null;
+  if (!id || id === 'deck') return;
+  const info = objIndex.get(id);
+  if (!info) return;
+  if (info.kind === 'pipe') {
+    const r = Math.max(info.ref.diameter_mm / 2000 * 1.9, 0.1);
+    info.ref.path.forEach((pt, i) => {
+      const h = new THREE.Mesh(
+        new THREE.SphereGeometry(r, 14, 14),
+        new THREE.MeshBasicMaterial({ color: 0xffd33d, transparent: true, opacity: 0.85, depthTest: false }));
+      h.position.set(pt[0], pt[1], pt[2]);
+      h.renderOrder = 1000;
+      h.userData = { pipeRef: info.ref, index: i, isHandle: true };
+      root.add(h);
+      handleMeshes.push(h);
+    });
+  } else {
+    const mesh = registry.get(id)?.meshes[0];
+    if (mesh) {
+      tcontrols.attach(mesh);
+      editState = { kind: 'box', ref: info.ref, mesh };
+    }
+  }
+}
+
+async function pushScene() {
+  await fetch('/api/scene', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(sceneData),
+  });
+}
+
+async function commitEdit(keepId = selectedId) {
+  await pushScene();
+  clearGhosts();
+  await loadScene();
+  await runInspection();
+  if (keepId && registry.has(keepId)) select(keepId);
+}
+
+function nextId(prefix) {
+  let n = 1;
+  while (objIndex.has(`${prefix}_${n}`)) n++;
+  return `${prefix}_${n}`;
 }
 
 // ---------- Builders ----------
@@ -326,16 +457,51 @@ canvas.addEventListener('pointermove', (e) => {
   }
 });
 canvas.addEventListener('click', (e) => {
+  if (justDragged) { justDragged = false; return; }   // ignore click after gizmo drag
+  if (tcontrols.axis) return;                          // pointer on gizmo
   const rect = canvas.getBoundingClientRect();
   mouse.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
   raycaster.setFromCamera(mouse, camera);
+  // pipe waypoint handles take priority
+  const hHit = raycaster.intersectObjects(handleMeshes, false)[0];
+  if (hHit) {
+    const h = hHit.object;
+    if (e.shiftKey) {                                  // shift+click: delete waypoint
+      if (h.userData.pipeRef.path.length > 2) {
+        h.userData.pipeRef.path.splice(h.userData.index, 1);
+        commitEdit();
+      }
+      return;
+    }
+    tcontrols.attach(h);
+    editState = { kind: 'waypoint', ref: h.userData.pipeRef, mesh: h, index: h.userData.index };
+    return;
+  }
   const hit = raycaster.intersectObjects(pickables, false)[0];
   select(hit ? hit.object.userData.id : null);
+});
+
+// double-click a waypoint handle: insert a new waypoint next to it
+canvas.addEventListener('dblclick', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  mouse.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  raycaster.setFromCamera(mouse, camera);
+  const hHit = raycaster.intersectObjects(handleMeshes, false)[0];
+  if (!hHit) return;
+  const { pipeRef, index } = hHit.object.userData;
+  const path = pipeRef.path;
+  const j = index < path.length - 1 ? index + 1 : index - 1;
+  const mid = [0, 1, 2].map(k => (path[index][k] + path[j][k]) / 2);
+  path.splice(Math.max(index, j), 0, mid);
+  commitEdit();
 });
 
 // ---------- Load scene ----------
 async function loadScene() {
   // clear previous 3D objects + sidebar
+  tcontrols.detach();
+  clearHandles();
+  editState = null;
   [...root.children].forEach(c => root.remove(c));
   labels.forEach(l => scene.remove(l));
   labels.length = 0;
@@ -347,6 +513,11 @@ async function loadScene() {
     document.getElementById(lid).innerHTML = '';
 
   const data = await (await fetch('/api/scene')).json();
+  sceneData = data;
+  objIndex = new Map();
+  for (const s of data.structures) objIndex.set(s.id, { kind: 'structure', ref: s });
+  for (const eq of data.equipment) objIndex.set(eq.id, { kind: 'equipment', ref: eq });
+  for (const p of data.pipes) objIndex.set(p.id, { kind: 'pipe', ref: p });
   document.getElementById('scene-name').textContent = data.meta.name;
   addRoom(data.meta.room);
   for (const s of data.structures) addBox(s, s.type, 'list-structures', COLORS[s.type] ?? 0x555555);
@@ -547,6 +718,60 @@ document.getElementById('reset-btn').onclick = async () => {
   clearGhosts();
   await loadScene();
   await runInspection();
+};
+
+// ---------- Design tools (Phase 6) ----------
+const TYPE_SIZES = {
+  pump: [1, 1, 1.2], heat_exchanger: [2.5, 2, 2], generator: [3, 2, 2],
+  tank: [2, 2, 2.5], engine: [6, 4, 4], frame: [0.2, 0.4, 6],
+};
+COLORS.tank = 0x20c997;
+
+document.getElementById('add-obj').onclick = async () => {
+  const type = document.getElementById('add-type').value;
+  const [sx, sy, sz] = TYPE_SIZES[type];
+  const r = sceneData.meta.room;
+  const cx = (r.min[0] + r.max[0]) / 2, cy = (r.min[1] + r.max[1]) / 2;
+  const id = nextId(type);
+  const obj = { id, name: id, type, box: {
+    min: [cx - sx / 2, cy - sy / 2, 0], max: [cx + sx / 2, cy + sy / 2, sz] } };
+  if (type === 'frame') sceneData.structures.push(obj);
+  else sceneData.equipment.push(obj);
+  await commitEdit(id);
+  select(id, true);
+};
+
+document.getElementById('add-pipe').onclick = async () => {
+  const dia = parseFloat(document.getElementById('pipe-dia').value) || 80;
+  let n = 101;
+  while (objIndex.has(`P-${n}`)) n++;
+  const id = `P-${n}`;
+  const r = sceneData.meta.room;
+  const cy = (r.min[1] + r.max[1]) / 2;
+  const x0 = r.min[0] + 1, x1 = r.max[0] - 1, step = (x1 - x0) / 3;
+  sceneData.pipes.push({
+    id, name: id, system: 'custom', diameter_mm: dia, from: null, to: null,
+    path: [0, 1, 2, 3].map(i => [x0 + step * i, cy, 1.5]),
+  });
+  await commitEdit(id);
+  select(id, true);
+};
+
+document.getElementById('del-obj').onclick = async () => {
+  if (!selectedId || selectedId === 'deck') return;
+  const info = objIndex.get(selectedId);
+  if (!info) return;
+  const arr = { equipment: sceneData.equipment, structure: sceneData.structures, pipe: sceneData.pipes }[info.kind];
+  arr.splice(arr.indexOf(info.ref), 1);
+  selectedId = null;
+  await commitEdit(null);
+};
+
+document.getElementById('save-btn').onclick = async (e) => {
+  await fetch('/api/save', { method: 'POST' });
+  const btn = e.target;
+  btn.textContent = '✓ 저장됨';
+  setTimeout(() => { btn.textContent = '💾 저장'; }, 1500);
 };
 
 // ---------- Bootstrap ----------
