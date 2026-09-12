@@ -677,7 +677,10 @@ async function toggleCandidates(card, violation) {
       <div class="c-head">
         <span class="opt">${c.option}안</span>
         ${c.recommended ? '<span class="rec-badge">★ 추천</span>' : ''}
-        <span class="vbadge">✓ 검증됨 · 잔여 위반 ${c.violations_after}건</span>
+        <span class="vbadge" ${c.verified ? '' : 'style="color:#d29922"'}>
+          ${c.verified ? `✓ 검증됨 · 잔여 위반 ${c.violations_after}건`
+                       : `⚠ 신규 위반 ${c.new_violations}건 유발 · 잔여 ${c.violations_after}건`}
+        </span>
       </div>
       <div class="c-desc">${c.description}</div>
       <div class="c-impact">영향: ${c.impact} · 이동량 ${c.displacement_mm} mm</div>

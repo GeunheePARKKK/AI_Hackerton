@@ -78,11 +78,13 @@ def _apply_action(scene: Scene, action: dict) -> Scene:
 
 
 def _verify(scene: Scene, action: dict, target_key: tuple,
-            old_keys: set) -> tuple[bool, int]:
+            old_keys: set) -> tuple[bool, int, int]:
+    """Returns (resolves_target, newly_introduced_count, total_violations_after)."""
     result = inspect_scene(_apply_action(scene, action))
     new_keys = {_vkey(v) for v in result["violations"]}
-    ok = target_key not in new_keys and new_keys <= (old_keys - {target_key})
-    return ok, result["summary"]["violations"]
+    resolves = target_key not in new_keys
+    introduced = len(new_keys - old_keys)
+    return resolves, introduced, result["summary"]["violations"]
 
 
 def _axis_name(axis: str, sign: float) -> str:
@@ -96,8 +98,35 @@ class Resolver:
         self.target_key = _vkey(violation)
         self.old_keys = old_keys
         self.candidates: list[dict[str, Any]] = []
+        self.relaxed: list[tuple] = []  # fallback fixes that introduce side effects
         base = max(self.v["required_mm"] - self.v["measured_mm"], 0.0) / MM + MARGIN_M
-        self.magnitudes = [base, base * 1.5, base * 2, base * 3]
+        sweep = [0.2, 0.35, 0.5, 0.8, 1.2, 1.8, 2.5, 3.5]
+        self.magnitudes = sorted({round(m, 3) for m in
+                                  [base, base * 1.5, base * 2, base * 3, *sweep]
+                                  if 0.01 < m < 8.0})
+
+    def _counterpart_box(self, target_id: str):
+        """AABB of the other subject in the violation, if it has one."""
+        other = self.v["b"] if self.v["a"]["id"] == target_id else self.v["a"]
+        if other["kind"] == "pipe" or other["id"] == "room":
+            return None
+        obj, _ = _find_box_obj(self.scene, other["id"])
+        return None if obj is None else (tuple(obj.box.min), tuple(obj.box.max))
+
+    def _try_direction(self, make_action, mags, describe) -> None:
+        """Walk magnitudes: keep the first clean fix, remember the best relaxed one."""
+        best = None
+        for mag in mags:
+            action = make_action(mag)
+            resolves, introduced, n_after = _verify(
+                self.scene, action, self.target_key, self.old_keys)
+            if resolves and introduced == 0:
+                self._add(action, mag, describe(mag), n_after, introduced=0)
+                return
+            if resolves and (best is None or introduced < best[0]):
+                best = (introduced, action, mag, n_after)
+        if best is not None:
+            self.relaxed.append((best[0], best[1], best[2], describe(best[2]), best[3]))
 
     # ---------- candidate families ----------
     def try_pipe_offsets(self, pipe_id: str) -> None:
@@ -108,60 +137,74 @@ class Resolver:
             if abs(g.dot(seg_dir, unit)) > 1e-9:
                 continue  # only perpendicular offsets keep the route orthogonal
             for sign in (1.0, -1.0):
-                for mag in self.magnitudes:
-                    delta = g.scale(unit, sign * mag)
-                    action = {
+                def make(mag, _unit=unit, _sign=sign, _axis=axis):
+                    delta = g.scale(_unit, _sign * mag)
+                    return {
                         "type": "offset_pipe_segment",
                         "pipe_id": pipe_id,
                         "segment": seg,
-                        "axis": axis,
-                        "delta_m": round(sign * mag, 4),
+                        "axis": _axis,
+                        "delta_m": round(_sign * mag, 4),
                         "new_path": _jog_path(pipe.path, seg, delta),
                     }
-                    ok, n_after = _verify(self.scene, action, self.target_key, self.old_keys)
-                    if ok:
-                        self._add(action, mag,
-                                  f"{pipe_id} 배관 구간을 {_axis_name(axis, sign)} 방향으로 "
-                                  f"{mag * MM:.0f} mm 이동", n_after)
-                        break  # smallest verified magnitude for this direction
+                name = _axis_name(axis, sign)
+                self._try_direction(
+                    make, self.magnitudes,
+                    lambda mag, _n=name: f"{pipe_id} 배관 구간을 {_n} 방향으로 {mag * MM:.0f} mm 이동")
 
     def try_box_moves(self, target_id: str) -> None:
         obj, action_type = _find_box_obj(self.scene, target_id)
         if obj is None:
             return
-        for axis in ("x", "y"):  # keep objects seated on deck
+        other_box = self._counterpart_box(target_id)
+        req = self.v["required_mm"] / MM + MARGIN_M
+        for axis_i, axis in enumerate(("x", "y", "z")):
             unit = AXES[axis]
             for sign in (1.0, -1.0):
-                for mag in self.magnitudes:
-                    delta = g.scale(unit, sign * mag)
-                    action = {
+                mags = list(self.magnitudes)
+                if other_box is not None:
+                    # exact displacement to clear the counterpart along this direction
+                    if sign > 0:
+                        d = (other_box[1][axis_i] + req) - obj.box.min[axis_i]
+                    else:
+                        d = obj.box.max[axis_i] - (other_box[0][axis_i] - req)
+                    if 0.01 < d < 8.0:
+                        mags = sorted({round(d, 3), *mags})
+
+                def make(mag, _unit=unit, _sign=sign, _axis=axis):
+                    delta = g.scale(_unit, _sign * mag)
+                    return {
                         "type": action_type,
                         "target_id": target_id,
-                        "axis": axis,
-                        "delta_m": round(sign * mag, 4),
+                        "axis": _axis,
+                        "delta_m": round(_sign * mag, 4),
                         "new_box": {
                             "min": [obj.box.min[k] + delta[k] for k in range(3)],
                             "max": [obj.box.max[k] + delta[k] for k in range(3)],
                         },
                     }
-                    ok, n_after = _verify(self.scene, action, self.target_key, self.old_keys)
-                    if ok:
-                        label = "장비" if action_type == "move_equipment" else "구조 부재"
-                        self._add(action, mag,
-                                  f"{label} {target_id}를 {_axis_name(axis, sign)} 방향으로 "
-                                  f"{mag * MM:.0f} mm 이동", n_after)
-                        break
+                label = "장비" if action_type == "move_equipment" else "구조 부재"
+                name = _axis_name(axis, sign)
+                self._try_direction(
+                    make, mags,
+                    lambda mag, _n=name, _l=label:
+                        f"{_l} {target_id}를 {_n} 방향으로 {mag * MM:.0f} mm 이동")
 
-    def _add(self, action: dict, mag_m: float, description: str, n_after: int) -> None:
+    def _add(self, action: dict, mag_m: float, description: str, n_after: int,
+             introduced: int) -> None:
         impact_text, penalty = IMPACT[action["type"]]
+        # vertical relocation of equipment/structures is a last resort
+        if action["type"] != "offset_pipe_segment" and action.get("axis") == "z":
+            penalty += 500
         self.candidates.append({
             "action": action,
             "description": description,
             "impact": impact_text,
             "displacement_mm": round(mag_m * MM, 1),
-            "verified": True,
+            "verified": introduced == 0,
+            "new_violations": introduced,
             "violations_after": n_after,
-            "score": round(mag_m * MM + penalty, 1),
+            "score": round(mag_m * MM + penalty + introduced * 2000, 1),
         })
 
     # ---------- entry ----------
@@ -175,6 +218,11 @@ class Resolver:
             self.try_box_moves(a["id"])
         if b["kind"] != "pipe" and b["id"] != "room":
             self.try_box_moves(b["id"])
+        # fallback: no perfectly clean fix exists -> offer least-harmful ones
+        if not self.candidates and self.relaxed:
+            self.relaxed.sort(key=lambda r: (r[0], r[2]))
+            for introduced, action, mag, desc, n_after in self.relaxed[:3]:
+                self._add(action, mag, desc, n_after, introduced=introduced)
         # maintenance space: prefer moving the intruder (b), not the equipment
         # that owns the clearance requirement (a)
         if self.v["code"] == "MAINTENANCE_SPACE":

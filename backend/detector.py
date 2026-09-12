@@ -129,12 +129,14 @@ class Inspector:
                 amin, amax = _box(a.box)
                 bmin, bmax = _box(b.box)
                 if g.boxes_overlap(amin, amax, bmin, bmax):
+                    # penetration depth = smallest axis overlap (how far to move to separate)
+                    depth = min(min(amax[i], bmax[i]) - max(amin[i], bmin[i]) for i in range(3))
                     ca = g.clamp_to_box(g.midpoint(bmin, bmax), amin, amax)
                     self._report(
                         "HARD_CLASH", "HIGH",
                         _subject(a, ka), _subject(b, kb),
-                        0.0, 0.0, ca,
-                        f"{a.id} overlaps {b.id}")
+                        -depth * MM, 0.0, ca,
+                        f"{a.id} overlaps {b.id} (penetration {depth * MM:.0f} mm)")
 
     def check_maintenance_space(self) -> None:
         for eq in self.scene.equipment:

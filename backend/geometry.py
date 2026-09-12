@@ -53,7 +53,7 @@ def segment_box_distance(a: Vec3, b: Vec3, bmin: Vec3, bmax: Vec3) -> tuple[floa
     Returns (distance, closest point on segment, closest point on box).
     """
     lo, hi = 0.0, 1.0
-    for _ in range(100):
+    for _ in range(48):
         m1 = lo + (hi - lo) / 3
         m2 = hi - (hi - lo) / 3
         if point_box_distance(lerp(a, b, m1), bmin, bmax) <= point_box_distance(lerp(a, b, m2), bmin, bmax):
