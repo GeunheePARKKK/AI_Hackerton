@@ -65,7 +65,8 @@ def _build_prompt(violation: dict, candidates: list[dict], knowledge: dict) -> s
 규칙: 제공된 수치를 절대 바꾸거나 새로 만들지 마세요. 제공된 데이터에 없는 사실을 지어내지 마세요."""
 
 
-def _call_claude(prompt: str) -> dict | None:
+def _claude_text(prompt: str) -> str | None:
+    """Run claude CLI headless and return the raw text reply."""
     exe = shutil.which("claude")
     if exe is None:
         return None
@@ -80,9 +81,18 @@ def _call_claude(prompt: str) -> dict | None:
         if proc.returncode != 0:
             return None
         envelope = json.loads(proc.stdout)
-        text = envelope.get("result", "")
+        return (envelope.get("result") or "").strip() or None
+    except Exception:
+        return None
+
+
+def _call_claude(prompt: str) -> dict | None:
+    """Run claude and parse its reply as JSON."""
+    text = _claude_text(prompt)
+    if text is None:
+        return None
+    try:
         # strip accidental code fences
-        text = text.strip()
         if text.startswith("```"):
             text = text.strip("`")
             text = text[text.find("{"):text.rfind("}") + 1]

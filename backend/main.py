@@ -11,6 +11,7 @@ from fastapi import Body, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from backend.chat import answer as chat_answer
 from backend.commands import run_command
 from backend.detector import inspect_scene
 from backend.llm import explain_violation
@@ -154,6 +155,13 @@ def command(body: dict = Body(...)) -> dict:
         result.pop("scene", None)
     result["inspection"] = inspect_scene(WORK["scene"])
     return result
+
+
+@app.post("/api/chat")
+def chat(body: dict = Body(...)) -> dict:
+    """Read-only help-desk chatbot (equipment roles, layout rules, tool usage)."""
+    return {"reply": chat_answer(
+        WORK["scene"], str(body.get("text", "")), body.get("history") or [])}
 
 
 @app.post("/api/reset")
