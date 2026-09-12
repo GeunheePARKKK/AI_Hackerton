@@ -124,6 +124,35 @@
     background: #238636; border: 1px solid #2ea043; color: #fff; font-weight: 600;
   }
   #save-btn:hover { background: #2ea043; }
+  #undo-btn, #redo-btn {
+    padding: 5px 10px; font-size: 13px; border-radius: 6px; cursor: pointer;
+    background: #21262d; border: 1px solid #30363d; color: #e6edf3;
+  }
+  #undo-btn { margin-left: auto; }
+  #undo-btn:hover, #redo-btn:hover { background: #30363d; }
+  /* ---- copilot ---- */
+  #autofix-btn {
+    width: 100%; padding: 9px; margin-bottom: 10px; border: 1px solid #6e40c9; border-radius: 6px;
+    background: #6e40c922; color: #bc8cff; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  #autofix-btn:hover { background: #6e40c944; }
+  #autofix-btn:disabled { opacity: 0.5; cursor: wait; }
+  #cmd-row { display: flex; gap: 6px; margin-bottom: 8px; }
+  #cmd-input {
+    flex: 1; padding: 8px; background: #0d1117; color: #e6edf3;
+    border: 1px solid #30363d; border-radius: 6px; font-size: 12px;
+  }
+  #cmd-input:focus { outline: 1px solid #6e40c9; }
+  #cmd-send {
+    padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+    background: #6e40c9; border: 1px solid #8957e5; color: #fff; font-weight: 600;
+  }
+  #cmd-send:disabled { opacity: 0.5; cursor: wait; }
+  #cmd-reply { font-size: 12px; line-height: 1.5; margin-bottom: 10px; }
+  #cmd-reply .msg { background: #161b22; border: 1px solid #6e40c955; border-radius: 6px; padding: 8px 10px; }
+  #cmd-reply .step { color: #8b949e; font-size: 11px; padding: 2px 0; }
+  #cmd-reply .step b { color: #3fb950; }
+  #cmd-reply .step.fail b { color: #f85149; }
 </style>
 <script type="importmap">
 {
@@ -139,7 +168,9 @@
   <header>
     <h1>🛳️ AI Ship Design Debugger</h1>
     <span class="badge" id="scene-name">loading…</span>
-    <span class="badge" style="background:#23863633;color:#3fb950;border-color:#23863666">Phase 6 · Interactive Design</span>
+    <span class="badge" style="background:#23863633;color:#3fb950;border-color:#23863666">Phase 7 · AI Copilot</span>
+    <button id="undo-btn" title="실행취소 (Ctrl+Z)">↶</button>
+    <button id="redo-btn" title="다시실행 (Ctrl+Y)">↷</button>
     <button id="save-btn">💾 저장</button>
     <button id="reset-btn">↩ 되돌리기</button>
   </header>
@@ -174,8 +205,15 @@
     <div id="hint">드래그: 회전 · 휠: 줌 · 클릭: 선택+이동기즈모 · 배관 선택 후 노란점 드래그: 경로 수정 · 더블클릭: 점 추가 · Shift+클릭: 점 삭제</div>
   </div>
   <div id="errorpanel">
+    <h2>AI Copilot</h2>
+    <div id="cmd-row">
+      <input id="cmd-input" placeholder="예: 펌프를 열교환기 옆에 추가해줘" />
+      <button id="cmd-send">▶</button>
+    </div>
+    <div id="cmd-reply"></div>
     <h2>Design Verification</h2>
     <button id="inspect-btn">🔍 설계 검사 실행</button>
+    <button id="autofix-btn">🤖 전체 자동 수정 (Agent)</button>
     <div id="summary"></div>
     <div id="no-errors">✅ 위반 사항 없음</div>
     <div id="err-list"></div>
@@ -776,6 +814,78 @@ document.getElementById('save-btn').onclick = async (e) => {
   btn.textContent = '✓ 저장됨';
   setTimeout(() => { btn.textContent = '💾 저장'; }, 1500);
 };
+
+// ---------- Undo / Redo ----------
+async function refresh() {
+  clearGhosts();
+  await loadScene();
+  await runInspection();
+}
+async function doUndo() { await fetch('/api/undo', { method: 'POST' }); await refresh(); }
+async function doRedo() { await fetch('/api/redo', { method: 'POST' }); await refresh(); }
+document.getElementById('undo-btn').onclick = doUndo;
+document.getElementById('redo-btn').onclick = doRedo;
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); doUndo(); }
+  if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); doRedo(); }
+});
+
+// ---------- Auto-Fix All (agent loop) ----------
+document.getElementById('autofix-btn').onclick = async (e) => {
+  const btn = e.target;
+  btn.disabled = true;
+  btn.textContent = '🤖 자동 수정 중… (검출→해결안→검증 반복)';
+  try {
+    const r = await (await fetch('/api/autofix', { method: 'POST' })).json();
+    const box = document.getElementById('cmd-reply');
+    const done = r.steps.filter(s => s.action);
+    const failed = r.steps.filter(s => !s.action);
+    box.innerHTML = `<div class="msg">🤖 자동 수정 완료 — ${done.length}건 해결` +
+      (failed.length ? `, ${failed.length}건은 수동 검토 필요` : '') +
+      ` (잔여 위반 ${r.inspection.summary.violations}건)</div>` +
+      r.steps.map(s => s.action
+        ? `<div class="step"><b>✓</b> ${s.violation} → ${s.action}${s.verified ? '' : ' ⚠'}</div>`
+        : `<div class="step fail"><b>✗</b> ${s.violation} → 해결안 없음</div>`).join('');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🤖 전체 자동 수정 (Agent)';
+  }
+  await refresh();
+};
+
+// ---------- Natural-language commands ----------
+async function sendCommand() {
+  const input = document.getElementById('cmd-input');
+  const btn = document.getElementById('cmd-send');
+  const text = input.value.trim();
+  if (!text) return;
+  const box = document.getElementById('cmd-reply');
+  btn.disabled = true; input.disabled = true;
+  box.innerHTML = '<div class="msg">🤖 AI가 설계 명령을 해석하고 있습니다…</div>';
+  try {
+    const r = await (await fetch('/api/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    })).json();
+    if (r.error) {
+      box.innerHTML = `<div class="msg">⚠ ${r.error}</div>`;
+    } else {
+      box.innerHTML = `<div class="msg">🤖 ${r.reply || '완료'}</div>` +
+        (r.applied || []).map(a => `<div class="step"><b>✓</b> ${a}</div>`).join('') +
+        (r.errors || []).map(er => `<div class="step fail"><b>✗</b> ${er}</div>`).join('');
+      input.value = '';
+    }
+  } finally {
+    btn.disabled = false; input.disabled = false;
+  }
+  await refresh();
+}
+document.getElementById('cmd-send').onclick = sendCommand;
+document.getElementById('cmd-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendCommand();
+});
 
 // ---------- Bootstrap ----------
 await loadScene();
