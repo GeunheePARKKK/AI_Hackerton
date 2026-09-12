@@ -114,6 +114,21 @@
     border: 1px solid #30363d; border-radius: 6px; font-size: 12px;
   }
   #toolbar .tool-row { display: flex; gap: 6px; }
+  /* ---- properties panel ---- */
+  #props { display: flex; flex-direction: column; gap: 5px; }
+  .prop-row {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: #8b949e; white-space: nowrap;
+  }
+  .prop-row input {
+    flex: 1; min-width: 0; padding: 5px; background: #0d1117; color: #e6edf3;
+    border: 1px solid #30363d; border-radius: 6px; font-size: 12px;
+  }
+  #prop-apply {
+    padding: 6px; font-size: 12px; border-radius: 6px; cursor: pointer;
+    background: #1f6feb22; border: 1px solid #1f6feb66; color: #58a6ff; font-weight: 600;
+  }
+  #prop-apply:hover { background: #1f6feb44; }
   #toolbar button {
     flex: 1; padding: 6px; font-size: 12px; border-radius: 6px; cursor: pointer;
     background: #21262d; border: 1px solid #30363d; color: #e6edf3;
@@ -194,6 +209,19 @@
         <input id="pipe-dia" type="number" value="80" min="15" max="600" />
       </div>
       <button id="del-obj">🗑 선택 항목 삭제</button>
+    </div>
+    <h2>Properties</h2>
+    <div id="props-empty" style="font-size:11px;color:#8b949e;padding:2px 0 6px">객체를 선택하면 속성을 편집할 수 있습니다</div>
+    <div id="props" style="display:none">
+      <label class="prop-row">ID <input id="prop-id" /></label>
+      <label class="prop-row">이름 <input id="prop-name" /></label>
+      <label class="prop-row" id="prop-dia-row" style="display:none">직경(mm) <input id="prop-dia" type="number" min="15" max="600" /></label>
+      <div id="prop-size-rows" style="display:none">
+        <label class="prop-row">가로 W(m) <input id="prop-sx" type="number" step="0.1" min="0.1" /></label>
+        <label class="prop-row">세로 D(m) <input id="prop-sy" type="number" step="0.1" min="0.1" /></label>
+        <label class="prop-row">높이 H(m) <input id="prop-sz" type="number" step="0.1" min="0.1" /></label>
+      </div>
+      <button id="prop-apply">✓ 적용</button>
     </div>
     <h2>Equipment</h2><div id="list-equipment"></div>
     <h2>Pipes</h2><div id="list-pipes"></div>
@@ -334,7 +362,70 @@ function select(id, focusCamera = false) {
     controls.target.copy(c);
   }
   editTarget(id);
+  updatePropsPanel(id);
 }
+
+// ---------- Properties panel ----------
+function updatePropsPanel(id) {
+  const panel = document.getElementById('props');
+  const empty = document.getElementById('props-empty');
+  const info = id ? objIndex.get(id) : null;
+  if (!info) {
+    panel.style.display = 'none';
+    empty.style.display = 'block';
+    return;
+  }
+  panel.style.display = 'flex';
+  empty.style.display = 'none';
+  document.getElementById('prop-id').value = info.ref.id;
+  document.getElementById('prop-name').value = info.ref.name;
+  const isPipe = info.kind === 'pipe';
+  document.getElementById('prop-dia-row').style.display = isPipe ? 'flex' : 'none';
+  document.getElementById('prop-size-rows').style.display = isPipe ? 'none' : 'block';
+  if (isPipe) {
+    document.getElementById('prop-dia').value = info.ref.diameter_mm;
+  } else {
+    const b = info.ref.box;
+    document.getElementById('prop-sx').value = (b.max[0] - b.min[0]).toFixed(2);
+    document.getElementById('prop-sy').value = (b.max[1] - b.min[1]).toFixed(2);
+    document.getElementById('prop-sz').value = (b.max[2] - b.min[2]).toFixed(2);
+  }
+}
+
+document.getElementById('prop-apply').onclick = async () => {
+  if (!selectedId) return;
+  const info = objIndex.get(selectedId);
+  if (!info) return;
+  const newId = document.getElementById('prop-id').value.trim();
+  const newName = document.getElementById('prop-name').value.trim();
+  if (!newId) { alert('ID는 비울 수 없습니다'); return; }
+  if (newId !== info.ref.id && objIndex.has(newId)) { alert(`ID '${newId}'는 이미 사용 중입니다`); return; }
+  // rename: keep pipe from/to references in sync
+  if (newId !== info.ref.id && info.kind === 'equipment') {
+    for (const p of sceneData.pipes) {
+      if (p.from === info.ref.id) p.from = newId;
+      if (p.to === info.ref.id) p.to = newId;
+    }
+  }
+  info.ref.id = newId;
+  info.ref.name = newName || newId;
+  if (info.kind === 'pipe') {
+    const dia = parseFloat(document.getElementById('prop-dia').value);
+    if (dia > 0) info.ref.diameter_mm = dia;
+  } else {
+    const sx = parseFloat(document.getElementById('prop-sx').value);
+    const sy = parseFloat(document.getElementById('prop-sy').value);
+    const sz = parseFloat(document.getElementById('prop-sz').value);
+    if (sx > 0 && sy > 0 && sz > 0) {
+      // resize around the base-center so the object stays put
+      const b = info.ref.box;
+      const cx = (b.min[0] + b.max[0]) / 2, cy = (b.min[1] + b.max[1]) / 2, z0 = b.min[2];
+      b.min = [cx - sx / 2, cy - sy / 2, z0];
+      b.max = [cx + sx / 2, cy + sy / 2, z0 + sz];
+    }
+  }
+  await commitEdit(newId);
+};
 
 // ---------- Editing ----------
 function clearHandles() {
