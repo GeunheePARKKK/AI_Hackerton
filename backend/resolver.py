@@ -100,9 +100,10 @@ class Resolver:
         self.candidates: list[dict[str, Any]] = []
         self.relaxed: list[tuple] = []  # fallback fixes that introduce side effects
         base = max(self.v["required_mm"] - self.v["measured_mm"], 0.0) / MM + MARGIN_M
+        exact = max(self.v["required_mm"] - self.v["measured_mm"], 0.0) / MM  # snug fit, no margin
         sweep = [0.2, 0.35, 0.5, 0.8, 1.2, 1.8, 2.5, 3.5]
         self.magnitudes = sorted({round(m, 3) for m in
-                                  [base, base * 1.5, base * 2, base * 3, *sweep]
+                                  [exact, base, base * 1.5, base * 2, base * 3, *sweep]
                                   if 0.01 < m < 8.0})
 
     def _counterpart_box(self, target_id: str):
