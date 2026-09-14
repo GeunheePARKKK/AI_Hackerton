@@ -10,13 +10,31 @@ the user's Claude Max subscription. Falls back to a template if unavailable.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import urllib.request
 from pathlib import Path
 from typing import Any
 
 KNOWLEDGE_FILE = Path(__file__).resolve().parent / "data" / "knowledge.json"
 CLAUDE_TIMEOUT_S = 90
+HTTP_TIMEOUT_S = 60
+
+
+def _load_env() -> None:
+    """Load KEY=VALUE pairs from repo-root .env (gitignored) into os.environ."""
+    env_file = Path(__file__).resolve().parent.parent / ".env"
+    if not env_file.exists():
+        return
+    for line in env_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
+
+
+_load_env()
 
 
 def _load_knowledge() -> dict:
@@ -86,9 +104,71 @@ def _claude_text(prompt: str) -> str | None:
         return None
 
 
+def _post_json(url: str, payload: dict, headers: dict) -> dict | None:
+    try:
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json", **headers})
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
+            return json.load(resp)
+    except Exception:
+        return None
+
+
+def _gemini_text(prompt: str) -> str | None:
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        return None
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    out = _post_json(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+        {"contents": [{"parts": [{"text": prompt}]}]},
+        {"x-goog-api-key": key})
+    try:
+        return out["candidates"][0]["content"]["parts"][0]["text"].strip() or None
+    except Exception:
+        return None
+
+
+def _openai_compat_text(prompt: str, url: str, key: str, model: str) -> str | None:
+    out = _post_json(url, {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+    }, {"Authorization": f"Bearer {key}"})
+    try:
+        return out["choices"][0]["message"]["content"].strip() or None
+    except Exception:
+        return None
+
+
+def llm_text(prompt: str) -> str | None:
+    """Fast-provider dispatch: Gemini/Groq/OpenAI via direct HTTP if an API key
+    is configured (1-3s), otherwise fall back to the Claude Code CLI (slower
+    because every call cold-starts a full CLI session)."""
+    if os.environ.get("GEMINI_API_KEY"):
+        r = _gemini_text(prompt)
+        if r:
+            return r
+    if os.environ.get("GROQ_API_KEY"):
+        r = _openai_compat_text(
+            prompt, "https://api.groq.com/openai/v1/chat/completions",
+            os.environ["GROQ_API_KEY"],
+            os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"))
+        if r:
+            return r
+    if os.environ.get("OPENAI_API_KEY"):
+        r = _openai_compat_text(
+            prompt, "https://api.openai.com/v1/chat/completions",
+            os.environ["OPENAI_API_KEY"],
+            os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
+        if r:
+            return r
+    return _claude_text(prompt)
+
+
 def _call_claude(prompt: str) -> dict | None:
-    """Run claude and parse its reply as JSON."""
-    text = _claude_text(prompt)
+    """Run the configured LLM and parse its reply as JSON."""
+    text = llm_text(prompt)
     if text is None:
         return None
     try:

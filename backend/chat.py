@@ -6,7 +6,7 @@ import json
 
 from backend.commands import _brief
 from backend.detector import inspect_scene
-from backend.llm import _claude_text, _load_knowledge
+from backend.llm import _load_knowledge, llm_text
 from backend.models import Scene
 
 PROMPT = """당신은 'AI Ship Design Debugger'에 내장된 조선 설계 도우미 챗봇입니다.
@@ -61,5 +61,5 @@ def answer(scene: Scene, text: str, history: list[dict]) -> str:
         history=hist,
         text=text[:500],
     )
-    reply = _claude_text(prompt)
+    reply = llm_text(prompt)
     return reply or "죄송합니다, 지금은 답변 생성에 실패했습니다. Claude CLI 상태를 확인해주세요."

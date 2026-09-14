@@ -57,6 +57,8 @@ python -m uvicorn backend.main:app --port 8000
 
 AI 분석 기능은 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)가 설치·로그인되어 있으면 자동으로 활성화됩니다. 없으면 템플릿 설명으로 폴백되어 나머지 기능은 전부 동작합니다.
 
+**⚡ AI 응답 속도 높이기 (권장):** Claude CLI 경유는 호출마다 15~25초가 걸립니다. `.env.example`을 `.env`로 복사하고 무료 API 키(예: [Gemini](https://aistudio.google.com/apikey) 또는 [Groq](https://console.groq.com/keys))를 넣으면 직접 HTTP 호출로 1~3초에 응답합니다. 키가 없으면 자동으로 Claude CLI 폴백.
+
 ### API
 
 | Endpoint | 설명 |
