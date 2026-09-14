@@ -119,13 +119,17 @@ def _gemini_text(prompt: str) -> str | None:
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         return None
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
     out = _post_json(
         f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-        {"contents": [{"parts": [{"text": prompt}]}]},
+        {"contents": [{"parts": [{"text": prompt}]}],
+         # this workload needs no deliberation; thinking multiplies latency
+         "generationConfig": {"thinkingConfig": {"thinkingLevel": "minimal"}}},
         {"x-goog-api-key": key})
     try:
-        return out["candidates"][0]["content"]["parts"][0]["text"].strip() or None
+        parts = out["candidates"][0]["content"]["parts"]
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+        return text.strip() or None
     except Exception:
         return None
 

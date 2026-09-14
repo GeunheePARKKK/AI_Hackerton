@@ -5,11 +5,12 @@
 
 ---
 
-## LLM 프로바이더 추상화 (`dc98c38`) · 2026-09-14
+## LLM 프로바이더 추상화 (`dc98c38`, `이후 수정`) · 2026-09-14
 
 - 자연어 명령/챗봇/AI 분석이 매번 Claude Code CLI를 콜드스타트해 호출당 15~25초 걸리던 문제 대응
 - `.env`에 API 키가 있으면 직접 HTTP 호출로 전환 (우선순위: Gemini → Groq → OpenAI → Claude CLI 폴백)
-- Gemini Flash / Groq 무료 키 기준 응답 1~3초 예상, 키 없으면 기존과 동일하게 동작
+- Gemini 기본 모델 `gemini-3.6-flash` + `thinkingLevel: minimal` (구모델 404, thinking 지연 이슈 해결)
+- **실측: 자연어 명령 20초+ → 4초, 챗봇 14초 → 4초**
 - `.env.example` 추가 (키 발급처 안내 포함), README에 속도 개선 가이드 추가
 
 ## 설계 도우미 챗봇 (`2dfaa57`) · 2026-09-12
